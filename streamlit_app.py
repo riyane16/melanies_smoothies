@@ -1,48 +1,60 @@
-# Import python packages
+# Streamlit (SniS) – Customize Your Smoothie
 import streamlit as st
-from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.functions import col
-# Write directly to the app
+
 st.title(":cup_with_straw: Customize Your Smoothie!")
-st.write(
-    """Choose the fruits you want in your custom Smoothie!
-    """)
+st.write("Choose the fruits you want in your custom Smoothie!")
 
-name_on_order = st.text_input('Name on Smoothie:')
-st.write('The name on your Smoothie will be:', name_on_order)
+# --- Connect to Snowflake (SniS style) ---
+# Requires a connection named "snowflake" in .streamlit/secrets.toml
+cnx = st.connection("snowflake")
+session = cnx.session()  # Snowpark session
 
-session = get_active_session()
-my_dataframe = session.table("smoothies.public.fruit_options").select(col('FRUIT_NAME'))
-#st.dataframe(data=my_dataframe, use_container_width=True)
+# --- Inputs ---
+name_on_order = st.text_input("Name on Smoothie:")
+st.write("The name on your Smoothie will be:", name_on_order or "—")
 
-ingredients_list = st.multiselect(
-    'Choose up to 5 ingredients:'
-    , my_dataframe
+# Get fruit options and convert to a Python list
+fruit_options = (
+    session.table("smoothies.public.fruit_options")
+    .select(col("FRUIT_NAME"))
+    .sort(col("FRUIT_NAME"))
+    .to_pandas()["FRUIT_NAME"]
+    .tolist()
 )
 
+ingredients_list = st.multiselect(
+    "Choose up to 5 ingredients:",
+    fruit_options,
+    max_selections=5,
+)
 
+# --- Submit ---
+if st.button("Submit Order"):
+    if not name_on_order:
+        st.warning("Please enter a name for the smoothie.")
+    elif not ingredients_list:
+        st.warning("Please choose at least one ingredient.")
+    else:
+        # Store a readable string like "Apple, Mango"
+        ingredients_string = ", ".join(ingredients_list)
 
-
-if ingredients_list:
-    ingredients_string = ''
-
-    for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + ' '
-
-    st.write(ingredients_string)
-
-    my_insert_stmt = f"""
-        insert into smoothies.public.orders(ingredients, name_on_order)
-        values ('{ingredients_string}', '{name_on_order}')
-        """
-
-
-    # st.write(my_insert_stmt)
-    time_to_insert = st.button('Submit Order')
-
-    if time_to_insert:
-        session.sql(my_insert_stmt).collect()
-        st.success(f"Your Smoothie is ordered, {name_on_order}!", icon='✅')
+        try:
+            # Append using Snowpark (avoids manual SQL and injection issues)
+            (
+                session.create_dataframe(
+                    [(ingredients_string, name_on_order)],
+                    schema=["INGREDIENTS", "NAME_ON_ORDER"],
+                )
+                .write.save_as_table(
+                    "smoothies.public.orders",
+                    mode="append",
+                )
+            )
+            st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
+            # st.rerun()  # uncomment if you want to clear the selection after submit
+        except Exception as e:
+            st.error(f"Order failed: {e}")
 
 
 
