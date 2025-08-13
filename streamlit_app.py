@@ -1,4 +1,4 @@
-# streamlit_app.py — SniS version
+# streamlit_app.py — SniS version (fixed insert)
 import streamlit as st
 from snowflake.snowpark.functions import col
 
@@ -45,17 +45,18 @@ if st.button("Submit Order"):
         st.warning("Please choose at least one ingredient.")
     else:
         ingredients_string = ", ".join(ingredients_list)
-
         try:
-            # Insert only the columns we provide; the rest use table defaults
-            orders_tbl = session.table("smoothies.public.orders")
-            orders_tbl.insert(
-                values=[(ingredients_string, name_on_order)],
-                columns=["INGREDIENTS", "NAME_ON_ORDER"],
-            )
+            # Parameterized INSERT with explicit column list.
+            # The remaining columns use table defaults (uid seq, filled=false, ts=current_timestamp).
+            session.sql(
+                """
+                INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
+                VALUES (%s, %s)
+                """,
+                params=[ingredients_string, name_on_order],
+            ).collect()
 
             st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
-            # st.rerun()  # uncomment to clear selections after submit
+            # st.rerun()
         except Exception as e:
             st.error(f"Order failed: {e}")
-
