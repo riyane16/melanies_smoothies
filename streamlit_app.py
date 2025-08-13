@@ -1,5 +1,7 @@
-# streamlit_app.py — SniS version (fixed INSERT for Snowpark)
+# streamlit_app.py — SniS version (dynamic SmoothieFroot + fixed INSERT)
 import streamlit as st
+import requests
+from urllib.parse import quote
 from snowflake.snowpark.functions import col
 
 st.title(":cup_with_straw: Customize Your Smoothie!")
@@ -41,7 +43,28 @@ def _sql_quote(s: str) -> str:
     """Escape single quotes for SQL literals."""
     return s.replace("'", "''")
 
-# --- Submit ---
+# --- SmoothieFroot nutrition (dynamic on first selected fruit) ---
+if ingredients_list:
+    first_fruit = ingredients_list[0]
+    st.subheader(f"🍉 Nutrition info for {first_fruit}")
+
+    @st.cache_data(show_spinner=False, ttl=600)
+    def fetch_smoothiefroot(name: str):
+        # URL-encode (handles spaces/special chars)
+        slug = quote(name.lower())
+        url = f"https://my.smoothiefroot.com/api/fruit/{slug}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        return r.json()
+
+    try:
+        data = fetch_smoothiefroot(first_fruit)
+        # Show parsed JSON as a nice table
+        st.dataframe(data=data, use_container_width=True)
+    except Exception as e:
+        st.error(f"Could not retrieve nutrition info: {e}")
+
+# --- Submit order ---
 if st.button("Submit Order"):
     if not name_on_order:
         st.warning("Please enter a name for the smoothie.")
@@ -49,34 +72,16 @@ if st.button("Submit Order"):
         st.warning("Please choose at least one ingredient.")
     else:
         ingredients_string = ", ".join(ingredients_list)
-
         try:
-            # Use explicit INSERT with a column list so defaults populate the others
+            # Explicit column list so other columns use table defaults
             sql = f"""
                 INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
                 VALUES ('{_sql_quote(ingredients_string)}', '{_sql_quote(name_on_order)}')
             """
             session.sql(sql).collect()
-
             st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
             # st.rerun()  # uncomment to clear selections after submit
         except Exception as e:
             st.error(f"Order failed: {e}")
-# New section to display SmoothieFroot nutrition information
-import requests
 
-st.subheader("🍉 SmoothieFroot Nutrition Info")
-
-try:
-    smoothie_url = "https://my.smoothiefroot.com/api/fruit/watermelon"
-    smoothie_response = requests.get(smoothie_url)
-
-    if smoothie_response.status_code == 200:
-        data = smoothie_response.json()
-        st.write(data)  # show the parsed JSON
-    else:
-        st.error(f"API request failed with status {smoothie_response.status_code}")
-
-except Exception as e:
-    st.error(f"Error calling SmoothieFroot API: {e}")
 
