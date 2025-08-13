@@ -1,3 +1,5 @@
-# requirements.txt
-snowflake-snowpark-python
 streamlit
+snowflake-snowpark-python
+snowflake-connector-python
+pyarrow==18.1.0
+requests
