@@ -62,4 +62,21 @@ if st.button("Submit Order"):
             # st.rerun()  # uncomment to clear selections after submit
         except Exception as e:
             st.error(f"Order failed: {e}")
+# New section to display SmoothieFroot nutrition information
+import requests
+
+st.subheader("🍉 SmoothieFroot Nutrition Info")
+
+try:
+    smoothie_url = "https://my.smoothiefroot.com/api/fruit/watermelon"
+    smoothie_response = requests.get(smoothie_url)
+
+    if smoothie_response.status_code == 200:
+        data = smoothie_response.json()
+        st.write(data)  # show the parsed JSON
+    else:
+        st.error(f"API request failed with status {smoothie_response.status_code}")
+
+except Exception as e:
+    st.error(f"Error calling SmoothieFroot API: {e}")
 
