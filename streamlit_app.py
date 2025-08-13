@@ -1,4 +1,4 @@
-# streamlit_app.py — SniS version (fixed insert)
+# streamlit_app.py — SniS version (fixed INSERT for Snowpark)
 import streamlit as st
 from snowflake.snowpark.functions import col
 
@@ -7,7 +7,7 @@ st.write("Choose the fruits you want in your custom Smoothie!")
 
 # --- Connect to Snowflake (expects [connections.snowflake] in Secrets) ---
 try:
-    cnx = st.connection("snowflake")   # name must be "snowflake" in Secrets
+    cnx = st.connection("snowflake")   # connection name in Secrets
     session = cnx.session()            # Snowpark session
 except Exception:
     st.error("Snowflake connection is not configured.")
@@ -37,6 +37,10 @@ ingredients_list = st.multiselect(
     max_selections=5,
 )
 
+def _sql_quote(s: str) -> str:
+    """Escape single quotes for SQL literals."""
+    return s.replace("'", "''")
+
 # --- Submit ---
 if st.button("Submit Order"):
     if not name_on_order:
@@ -45,18 +49,17 @@ if st.button("Submit Order"):
         st.warning("Please choose at least one ingredient.")
     else:
         ingredients_string = ", ".join(ingredients_list)
+
         try:
-            # Parameterized INSERT with explicit column list.
-            # The remaining columns use table defaults (uid seq, filled=false, ts=current_timestamp).
-            session.sql(
-                """
+            # Use explicit INSERT with a column list so defaults populate the others
+            sql = f"""
                 INSERT INTO smoothies.public.orders (INGREDIENTS, NAME_ON_ORDER)
-                VALUES (%s, %s)
-                """,
-                params=[ingredients_string, name_on_order],
-            ).collect()
+                VALUES ('{_sql_quote(ingredients_string)}', '{_sql_quote(name_on_order)}')
+            """
+            session.sql(sql).collect()
 
             st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
-            # st.rerun()
+            # st.rerun()  # uncomment to clear selections after submit
         except Exception as e:
             st.error(f"Order failed: {e}")
+
