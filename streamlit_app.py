@@ -1,27 +1,35 @@
-# Streamlit (SniS) – Customize Your Smoothie
+# streamlit_app.py — SniS version
 import streamlit as st
 from snowflake.snowpark.functions import col
 
 st.title(":cup_with_straw: Customize Your Smoothie!")
 st.write("Choose the fruits you want in your custom Smoothie!")
 
-# --- Connect to Snowflake (SniS style) ---
-# Requires a connection named "snowflake" in .streamlit/secrets.toml
-cnx = st.connection("snowflake")
-session = cnx.session()  # Snowpark session
+# --- Connect to Snowflake (expects [connections.snowflake] in Secrets) ---
+try:
+    cnx = st.connection("snowflake")   # name must be "snowflake" in Secrets
+    session = cnx.session()            # Snowpark session
+except Exception:
+    st.error("Snowflake connection is not configured.")
+    st.caption("Add a [connections.snowflake] block in Streamlit Secrets or pass kwargs to st.connection().")
+    st.stop()
 
 # --- Inputs ---
 name_on_order = st.text_input("Name on Smoothie:")
 st.write("The name on your Smoothie will be:", name_on_order or "—")
 
-# Get fruit options and convert to a Python list
-fruit_options = (
-    session.table("smoothies.public.fruit_options")
-    .select(col("FRUIT_NAME"))
-    .sort(col("FRUIT_NAME"))
-    .to_pandas()["FRUIT_NAME"]
-    .tolist()
-)
+# --- Data helpers ---
+@st.cache_data(ttl=300)
+def get_fruit_options():
+    return (
+        session.table("smoothies.public.fruit_options")
+        .select(col("FRUIT_NAME"))
+        .sort(col("FRUIT_NAME"))
+        .to_pandas()["FRUIT_NAME"]
+        .tolist()
+    )
+
+fruit_options = get_fruit_options()
 
 ingredients_list = st.multiselect(
     "Choose up to 5 ingredients:",
@@ -36,25 +44,18 @@ if st.button("Submit Order"):
     elif not ingredients_list:
         st.warning("Please choose at least one ingredient.")
     else:
-        # Store a readable string like "Apple, Mango"
         ingredients_string = ", ".join(ingredients_list)
 
         try:
-            # Append using Snowpark (avoids manual SQL and injection issues)
-            (
-                session.create_dataframe(
-                    [(ingredients_string, name_on_order)],
-                    schema=["INGREDIENTS", "NAME_ON_ORDER"],
-                )
-                .write.save_as_table(
-                    "smoothies.public.orders",
-                    mode="append",
-                )
+            # Insert only the columns we provide; the rest use table defaults
+            orders_tbl = session.table("smoothies.public.orders")
+            orders_tbl.insert(
+                values=[(ingredients_string, name_on_order)],
+                columns=["INGREDIENTS", "NAME_ON_ORDER"],
             )
+
             st.success(f"Your Smoothie is ordered, {name_on_order}!", icon="✅")
-            # st.rerun()  # uncomment if you want to clear the selection after submit
+            # st.rerun()  # uncomment to clear selections after submit
         except Exception as e:
             st.error(f"Order failed: {e}")
-
-
 
